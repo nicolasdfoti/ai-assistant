@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Robot Pintor</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #12263a; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="juego"></canvas>
+<script>
+// Robot Pintor: pintá todas las baldosas antes de que se acabe el tiempo.
+// Las vaquitas de San Antonio despintan lo que pisan... ¡y si te tocan te marean!
+
+const canvas = document.getElementById('juego');
+const ctx = canvas.getContext('2d');
+let W, H, u;
+
+function ajustar() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  u = Math.min(W, H) / 100;
+}
+addEventListener('resize', ajustar);
+ajustar();
+
+const COLS = 10, FILAS = 7;
+const PINTURAS = ['#ff6b6b', '#4ecdc4', '#ffd166', '#a78bfa', '#7bd389'];
+
+// --- Estado ---
+let estado = 'inicio';
+let baldosas, robot, bichos, puntos, tiempo, mareado, cartel, nivel = 1, record = 0;
+
+// --- Teclado: cada flecha mueve una baldosa ---
+const pasos = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+addEventListener('keydown', (e) => {
+  if (pasos[e.key]) {
+    e.preventDefault();
+    if (estado === 'jugando' && cartel <= 0 && mareado <= 0) moverRobot(...pasos[e.key]);
+  }
+  if (e.key === 'Enter' && estado !== 'jugando') empezar();
+});
+
+const adentro = (x, y) => x >= 0 && y >= 0 && x < COLS && y < FILAS;
+
+function empezar() {
+  nivel = 0;
+  puntos = 0;
+  estado = 'jugando';
+  siguienteNivel();
+}
+
+function siguienteNivel() {
+  nivel++;
+  baldosas = Array.from({ length: FILAS }, () => Array(COLS).fill(false));
+  robot = { x: 0, y: 0 };
+  baldosas[0][0] = true;
+  // Los bichos arrancan en la esquina opuesta; hay uno más por nivel
+  bichos = Array.from({ length: Math.min(nivel, 4) }, (_, i) => ({
+    x: COLS - 1 - i, y: FILAS - 1, dx: -1, dy: 0, espera: 1 + i * 0.3,
+  }));
+  tiempo = 40;
+  mareado = 0;
+  cartel = 1.2;
+}
+
+function moverRobot(dx, dy) {
+  const nx = robot.x + dx, ny = robot.y + dy;
+  if (!adentro(nx, ny)) return;
+  robot.x = nx;
+  robot.y = ny;
+  if (!baldosas[ny][nx]) {
+    baldosas[ny][nx] = true;
+    puntos++;
+  }
+}
+
+const pintadas = () => baldosas.flat().filter(Boolean).length;
+
+function moverBicho(b) {
+  // Prefiere seguir derecho; a veces dobla; nunca vuelve para atrás si puede evitarlo
+  const opciones = Object.values(pasos).filter(([dx, dy]) => adentro(b.x + dx, b.y + dy) && !(dx === -b.dx && dy === -b.dy));
+  const sigue = opciones.find(([dx, dy]) => dx === b.dx && dy === b.dy);
+  const [dx, dy] = sigue && Math.random() < 0.7 ? sigue : opciones[Math.floor(Math.random() * opciones.length)] || [-b.dx, -b.dy];
+  b.x += dx;
+  b.y += dy;
+  b.dx = dx;
+  b.dy = dy;
+  baldosas[b.y][b.x] = false; // ¡despinta!
+}
+
+function actualizar(dt) {
+  if (cartel > 0) {
+    cartel -= dt;
+    return;
+  }
+  tiempo -= dt;
+  mareado = Math.max(0, mareado - dt);
+
+  for (const b of bichos) {
+    b.espera -= dt;
+    if (b.espera <= 0) {
+      moverBicho(b);
+      b.espera = Math.max(0.3, 0.7 - nivel * 0.05);
+    }
+    if (b.x === robot.x && b.y === robot.y && mareado <= 0) mareado = 1.2;
+  }
+
+  if (pintadas() === COLS * FILAS) {
+    puntos += Math.ceil(tiempo) * 2;
+    siguienteNivel();
+  } else if (tiempo <= 0) {
+    estado = 'fin';
+    record = Math.max(record, puntos);
+  }
+}
+
+// --- Dibujo ---
+function texto(t, x, y, tam, color) {
+  ctx.font = `bold ${tam * u}px "Trebuchet MS", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.fillText(t, x, y);
+}
+
+function dibujarRobot(x, y, lado, t) {
+  const tam = lado * 0.7;
+  const bamboleo = mareado > 0 ? Math.sin(t * 30) * 0.2 : 0;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(bamboleo);
+  ctx.fillStyle = '#dfe7f2';
+  ctx.fillRect(-tam / 2, -tam / 2, tam, tam);
+  ctx.fillStyle = '#12263a';
+  const ojo = mareado > 0 ? tam * 0.05 : tam * 0.1;
+  ctx.beginPath();
+  ctx.arc(-tam * 0.18, -tam * 0.08, ojo, 0, Math.PI * 2);
+  ctx.arc(tam * 0.18, -tam * 0.08, ojo, 0, Math.PI * 2);
+  ctx.fill();
+  // Antena con la pintura del nivel
+  ctx.fillStyle = PINTURAS[(nivel - 1) % PINTURAS.length];
+  ctx.fillRect(-tam * 0.05, -tam * 0.75, tam * 0.1, tam * 0.25);
+  ctx.beginPath();
+  ctx.arc(0, -tam * 0.8, tam * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function dibujar(t) {
+  ctx.fillStyle = '#12263a';
+  ctx.fillRect(0, 0, W, H);
+
+  if (estado === 'inicio') {
+    dibujarRobot(W / 2, H * 0.28, 22 * u, t);
+    texto('Robot Pintor', W / 2, H * 0.5, 9, '#ffd166');
+    texto('Movete con las flechas y pintá todas las baldosas', W / 2, H * 0.6, 3.5, '#dfe7f2');
+    texto('¡Ojo con las vaquitas, que despintan todo!', W / 2, H * 0.66, 3.5, '#dfe7f2');
+    texto('Presioná Enter para empezar', W / 2, H * 0.8, 5, '#4ecdc4');
+    return;
+  }
+
+  const lado = Math.min((W * 0.92) / COLS, (H * 0.78) / FILAS);
+  const x0 = (W - lado * COLS) / 2;
+  const y0 = H * 0.16 + (H * 0.8 - lado * FILAS) / 2;
+  const pintura = PINTURAS[(nivel - 1) % PINTURAS.length];
+
+  for (let y = 0; y < FILAS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      ctx.fillStyle = baldosas[y][x] ? pintura : '#2c4a66';
+      ctx.fillRect(x0 + x * lado + 2, y0 + y * lado + 2, lado - 4, lado - 4);
+    }
+  }
+  ctx.font = `${lado * 0.6}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (const b of bichos) ctx.fillText('🐞', x0 + (b.x + 0.5) * lado, y0 + (b.y + 0.5) * lado);
+  ctx.textBaseline = 'alphabetic';
+  dibujarRobot(x0 + (robot.x + 0.5) * lado, y0 + (robot.y + 0.55) * lado, lado, t);
+
+  const porcentaje = Math.round((pintadas() / (COLS * FILAS)) * 100);
+  ctx.font = `bold ${4.5 * u}px "Trebuchet MS", sans-serif`;
+  ctx.fillStyle = '#ffd166';
+  ctx.textAlign = 'left';
+  ctx.fillText(`Nivel ${nivel} · Pintado ${porcentaje}% · Puntos ${puntos}`, 3 * u, 7 * u);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = tiempo < 8 ? '#ff6b6b' : '#ffd166';
+  ctx.fillText(`⏱ ${Math.max(0, Math.ceil(tiempo))}`, W - 3 * u, 7 * u);
+
+  if (cartel > 0 && estado === 'jugando') {
+    ctx.fillStyle = 'rgba(18, 38, 58, 0.7)';
+    ctx.fillRect(0, 0, W, H);
+    texto(`¡Nivel ${nivel}!`, W / 2, H * 0.5, 10, pintura);
+  }
+
+  if (estado === 'fin') {
+    ctx.fillStyle = 'rgba(18, 38, 58, 0.8)';
+    ctx.fillRect(0, 0, W, H);
+    texto('¡Se secó la pintura!', W / 2, H * 0.4, 8, '#ffd166');
+    texto(`Nivel ${nivel} · ${puntos} puntos · Récord: ${record}`, W / 2, H * 0.52, 5, '#dfe7f2');
+    texto('Enter para pintar de nuevo', W / 2, H * 0.68, 5, '#4ecdc4');
+  }
+}
+
+// --- Bucle principal ---
+let anterior = performance.now();
+function bucle(ahora) {
+  const dt = Math.min((ahora - anterior) / 1000, 0.05);
+  anterior = ahora;
+  if (estado === 'jugando') actualizar(dt);
+  dibujar(ahora / 1000);
+  requestAnimationFrame(bucle);
+}
+requestAnimationFrame(bucle);
+</script>
+</body>
+</html>

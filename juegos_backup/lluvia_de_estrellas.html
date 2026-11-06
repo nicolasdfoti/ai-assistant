@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Lluvia de Estrellas</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1030; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="juego"></canvas>
+<script>
+// Lluvia de Estrellas: mové la canasta con las flechas y atrapá estrellas.
+// Las doradas valen 5 puntos. ¡Cuidado con las nubes de tormenta!
+
+const canvas = document.getElementById('juego');
+const ctx = canvas.getContext('2d');
+let W, H, u; // ancho, alto y una "unidad" que se adapta a la pantalla
+
+function ajustar() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  u = Math.min(W, H) / 100;
+}
+addEventListener('resize', ajustar);
+ajustar();
+
+// --- Teclado ---
+const teclas = {};
+addEventListener('keydown', (e) => {
+  if (e.key.startsWith('Arrow')) e.preventDefault();
+  teclas[e.key] = true;
+  if (e.key === 'Enter' && estado !== 'jugando') empezar();
+});
+addEventListener('keyup', (e) => { teclas[e.key] = false; });
+
+// --- Estado del juego (las posiciones van de 0 a 1 para que se adapten a cualquier pantalla) ---
+let estado = 'inicio';
+let canastaX, cosas, chispas, puntos, vidas, proxima, destello, record = 0;
+
+// Estrellitas de fondo que titilan
+const fondo = Array.from({ length: 80 }, () => ({ x: Math.random(), y: Math.random(), fase: Math.random() * 6 }));
+
+function empezar() {
+  canastaX = 0.5;
+  cosas = [];
+  chispas = [];
+  puntos = 0;
+  vidas = 3;
+  proxima = 0;
+  destello = 0;
+  estado = 'jugando';
+}
+
+// Crea una estrella común, una dorada o una nube de tormenta
+function nuevaCosa() {
+  const azar = Math.random();
+  const probNube = 0.25 + Math.min(puntos / 300, 0.2);
+  const tipo = azar < 0.08 ? 'dorada' : azar < 0.08 + probNube ? 'nube' : 'estrella';
+  const velocidad = (0.22 + puntos / 400) * (0.8 + Math.random() * 0.5);
+  cosas.push({ tipo, x: 0.05 + Math.random() * 0.9, y: -0.05, giro: Math.random() * 6, velocidad });
+}
+
+function explotar(x, y, color) {
+  for (let i = 0; i < 12; i++) {
+    const angulo = Math.random() * Math.PI * 2;
+    const rapidez = 0.1 + Math.random() * 0.25;
+    chispas.push({ x, y, vx: Math.cos(angulo) * rapidez, vy: Math.sin(angulo) * rapidez, vida: 0.6, color });
+  }
+}
+
+function actualizar(dt) {
+  // Mover la canasta
+  if (teclas.ArrowLeft) canastaX -= 0.9 * dt;
+  if (teclas.ArrowRight) canastaX += 0.9 * dt;
+  canastaX = Math.max(0.05, Math.min(0.95, canastaX));
+
+  // Cada vez aparecen cosas más seguido
+  proxima -= dt;
+  if (proxima <= 0) {
+    nuevaCosa();
+    proxima = Math.max(0.25, 0.9 - puntos / 120);
+  }
+
+  // Caída y choques con la canasta
+  const medioAncho = (8 * u) / W;
+  for (const c of cosas) {
+    c.y += c.velocidad * dt;
+    c.giro += dt * 2;
+    const enLaCanasta = c.y > 0.85 && c.y < 0.93 && Math.abs(c.x - canastaX) < medioAncho;
+    if (enLaCanasta && !c.usada) {
+      c.usada = true;
+      if (c.tipo === 'nube') {
+        vidas--;
+        destello = 0.3;
+      } else {
+        puntos += c.tipo === 'dorada' ? 5 : 1;
+        explotar(c.x, c.y, c.tipo === 'dorada' ? '#ffb703' : '#fff38a');
+      }
+    }
+    if (c.y > 1.1) c.usada = true;
+  }
+  cosas = cosas.filter((c) => !c.usada);
+
+  for (const p of chispas) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vida -= dt;
+  }
+  chispas = chispas.filter((p) => p.vida > 0);
+  destello = Math.max(0, destello - dt);
+
+  if (vidas <= 0) {
+    estado = 'fin';
+    record = Math.max(record, puntos);
+  }
+}
+
+// --- Dibujo ---
+function estrella(x, y, radio, giro, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(giro);
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? radio : radio * 0.45;
+    const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+function nube(x, y, r) {
+  ctx.fillStyle = '#6b7090';
+  for (const [dx, dy, k] of [[-0.6, 0.1, 0.6], [0, -0.2, 0.8], [0.6, 0.1, 0.6]]) {
+    ctx.beginPath();
+    ctx.arc(x + dx * r, y + dy * r, k * r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // El rayito
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath();
+  ctx.moveTo(x, y + 0.3 * r);
+  ctx.lineTo(x - 0.3 * r, y + 1.0 * r);
+  ctx.lineTo(x, y + 0.9 * r);
+  ctx.lineTo(x - 0.15 * r, y + 1.4 * r);
+  ctx.lineTo(x + 0.3 * r, y + 0.7 * r);
+  ctx.lineTo(x + 0.02 * r, y + 0.75 * r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function canasta(x, y) {
+  const a = 16 * u;
+  ctx.fillStyle = '#c47a3a';
+  ctx.beginPath();
+  ctx.moveTo(x - a / 2, y);
+  ctx.lineTo(x + a / 2, y);
+  ctx.lineTo(x + a * 0.38, y + 6 * u);
+  ctx.lineTo(x - a * 0.38, y + 6 * u);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#8a4f22';
+  ctx.lineWidth = u * 0.6;
+  for (let i = 1; i < 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x - a * 0.45, y + i * 2 * u);
+    ctx.lineTo(x + a * 0.45, y + i * 2 * u);
+    ctx.stroke();
+  }
+}
+
+function texto(t, x, y, tam, color) {
+  ctx.font = `bold ${tam * u}px "Trebuchet MS", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.fillText(t, x, y);
+}
+
+function dibujar(t) {
+  ctx.fillStyle = '#0b1030';
+  ctx.fillRect(0, 0, W, H);
+  for (const s of fondo) {
+    ctx.globalAlpha = 0.4 + 0.4 * Math.sin(t * 2 + s.fase);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(s.x * W, s.y * H, u * 0.4, u * 0.4);
+  }
+  ctx.globalAlpha = 1;
+
+  if (estado === 'inicio') {
+    estrella(W / 2, H * 0.25, 10 * u, t, '#fff38a');
+    texto('Lluvia de Estrellas', W / 2, H * 0.47, 9, '#fff38a');
+    texto('Atrapá estrellas con la canasta usando las flechas ← →', W / 2, H * 0.58, 3.5, '#cfd8ff');
+    texto('Las doradas valen 5 puntos. ¡Esquivá las nubes de tormenta!', W / 2, H * 0.64, 3.5, '#cfd8ff');
+    texto('Presioná Enter para empezar', W / 2, H * 0.8, 5, '#ffb703');
+    return;
+  }
+
+  for (const c of cosas) {
+    if (c.tipo === 'nube') nube(c.x * W, c.y * H, 4 * u);
+    else estrella(c.x * W, c.y * H, c.tipo === 'dorada' ? 4.5 * u : 3 * u, c.giro, c.tipo === 'dorada' ? '#ffb703' : '#fff38a');
+  }
+  for (const p of chispas) {
+    ctx.globalAlpha = p.vida / 0.6;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x * W, p.y * H, u, u);
+  }
+  ctx.globalAlpha = 1;
+  canasta(canastaX * W, H * 0.88);
+
+  if (destello > 0) {
+    ctx.fillStyle = `rgba(255, 60, 60, ${destello})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.textAlign = 'left';
+  ctx.font = `bold ${5 * u}px "Trebuchet MS", sans-serif`;
+  ctx.fillStyle = '#fff38a';
+  ctx.fillText(`Puntos: ${puntos}`, 3 * u, 7 * u);
+  ctx.textAlign = 'right';
+  ctx.fillText('❤️'.repeat(Math.max(vidas, 0)), W - 3 * u, 7 * u);
+
+  if (estado === 'fin') {
+    ctx.fillStyle = 'rgba(11, 16, 48, 0.75)';
+    ctx.fillRect(0, 0, W, H);
+    texto('¡Se terminó la tormenta!', W / 2, H * 0.4, 8, '#fff38a');
+    texto(`Juntaste ${puntos} puntos · Récord: ${record}`, W / 2, H * 0.52, 5, '#cfd8ff');
+    texto('Enter para jugar de nuevo', W / 2, H * 0.68, 5, '#ffb703');
+  }
+}
+
+// --- Bucle principal ---
+let anterior = performance.now();
+function bucle(ahora) {
+  const dt = Math.min((ahora - anterior) / 1000, 0.05);
+  anterior = ahora;
+  if (estado === 'jugando') actualizar(dt);
+  dibujar(ahora / 1000);
+  requestAnimationFrame(bucle);
+}
+requestAnimationFrame(bucle);
+</script>
+</body>
+</html>

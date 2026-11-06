@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cohete Esquivador</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #050816; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="juego"></canvas>
+<script>
+// Cohete Esquivador: mové el cohete con las flechas, esquivá los meteoritos
+// y juntá cristales. Cuanto más aguantás, más puntos.
+
+const canvas = document.getElementById('juego');
+const ctx = canvas.getContext('2d');
+let W, H, u;
+
+function ajustar() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  u = Math.min(W, H) / 100;
+}
+addEventListener('resize', ajustar);
+ajustar();
+
+// --- Teclado ---
+const teclas = {};
+addEventListener('keydown', (e) => {
+  if (e.key.startsWith('Arrow')) e.preventDefault();
+  teclas[e.key] = true;
+  if (e.key === 'Enter' && estado !== 'jugando') empezar();
+});
+addEventListener('keyup', (e) => { teclas[e.key] = false; });
+
+// --- Estado (posiciones de 0 a 1) ---
+let estado = 'inicio';
+let cohete, meteoritos, cristales, puntos, escudos, invencible, tiempo, proximoMeteorito, proximoCristal, record = 0;
+const estrellas = Array.from({ length: 120 }, () => ({ x: Math.random(), y: Math.random(), capa: 1 + Math.floor(Math.random() * 3) }));
+
+function empezar() {
+  cohete = { x: 0.5, y: 0.8 };
+  meteoritos = [];
+  cristales = [];
+  puntos = 0;
+  escudos = 3;
+  invencible = 0;
+  tiempo = 0;
+  proximoMeteorito = 0;
+  proximoCristal = 2;
+  estado = 'jugando';
+}
+
+function nuevoMeteorito() {
+  const tam = 2.5 + Math.random() * 4; // radio en unidades
+  const forma = Array.from({ length: 9 }, () => 0.75 + Math.random() * 0.35); // borde irregular
+  meteoritos.push({
+    x: Math.random(), y: -0.1, tam, forma,
+    vel: 0.2 + Math.random() * 0.2 + tiempo / 150,
+    deriva: (Math.random() - 0.5) * 0.1,
+    giro: 0, velGiro: (Math.random() - 0.5) * 3,
+  });
+}
+
+// ¿Se tocan dos círculos? (posiciones de 0 a 1, radios en unidades)
+function chocan(a, b, radioA, radioB) {
+  const dx = (a.x - b.x) * W;
+  const dy = (a.y - b.y) * H;
+  return Math.hypot(dx, dy) < (radioA + radioB) * u;
+}
+
+function actualizar(dt) {
+  tiempo += dt;
+  puntos += dt * 10;
+
+  // Mover el cohete en las cuatro direcciones
+  const vel = 0.7 * dt;
+  if (teclas.ArrowLeft) cohete.x -= vel;
+  if (teclas.ArrowRight) cohete.x += vel;
+  if (teclas.ArrowUp) cohete.y -= vel;
+  if (teclas.ArrowDown) cohete.y += vel;
+  cohete.x = Math.max(0.03, Math.min(0.97, cohete.x));
+  cohete.y = Math.max(0.1, Math.min(0.92, cohete.y));
+
+  proximoMeteorito -= dt;
+  if (proximoMeteorito <= 0) {
+    nuevoMeteorito();
+    proximoMeteorito = Math.max(0.18, 0.8 - tiempo / 60);
+  }
+  proximoCristal -= dt;
+  if (proximoCristal <= 0) {
+    cristales.push({ x: 0.05 + Math.random() * 0.9, y: -0.05 });
+    proximoCristal = 2 + Math.random() * 2;
+  }
+
+  for (const m of meteoritos) {
+    m.y += m.vel * dt;
+    m.x += m.deriva * dt;
+    m.giro += m.velGiro * dt;
+    if (invencible <= 0 && chocan(m, cohete, m.tam * 0.8, 2.5)) {
+      escudos--;
+      invencible = 1.5;
+      m.y = 2; // el meteorito se deshace
+    }
+  }
+  meteoritos = meteoritos.filter((m) => m.y < 1.2);
+
+  for (const c of cristales) {
+    c.y += 0.25 * dt;
+    if (chocan(c, cohete, 2, 3)) {
+      puntos += 50;
+      c.y = 2;
+    }
+  }
+  cristales = cristales.filter((c) => c.y < 1.2);
+
+  invencible = Math.max(0, invencible - dt);
+  if (escudos <= 0) {
+    estado = 'fin';
+    record = Math.max(record, Math.floor(puntos));
+  }
+}
+
+// --- Dibujo ---
+function dibujarCohete(x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Fuego del motor
+  ctx.fillStyle = Math.random() < 0.5 ? '#ff8c42' : '#ffd23f';
+  ctx.beginPath();
+  ctx.moveTo(-1.5 * u, 3 * u);
+  ctx.lineTo(0, (6 + Math.random() * 2) * u);
+  ctx.lineTo(1.5 * u, 3 * u);
+  ctx.fill();
+  // Cuerpo
+  ctx.fillStyle = '#e8ecff';
+  ctx.beginPath();
+  ctx.moveTo(0, -5 * u);
+  ctx.quadraticCurveTo(3 * u, -1 * u, 2 * u, 3.5 * u);
+  ctx.lineTo(-2 * u, 3.5 * u);
+  ctx.quadraticCurveTo(-3 * u, -1 * u, 0, -5 * u);
+  ctx.fill();
+  // Alas y ventanita
+  ctx.fillStyle = '#ff5d73';
+  ctx.fillRect(-3.5 * u, 1.5 * u, 1.6 * u, 2.5 * u);
+  ctx.fillRect(1.9 * u, 1.5 * u, 1.6 * u, 2.5 * u);
+  ctx.fillStyle = '#4fd6ff';
+  ctx.beginPath();
+  ctx.arc(0, -1 * u, 1.1 * u, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function dibujarMeteorito(m) {
+  ctx.save();
+  ctx.translate(m.x * W, m.y * H);
+  ctx.rotate(m.giro);
+  ctx.fillStyle = '#8d6e63';
+  ctx.beginPath();
+  m.forma.forEach((k, i) => {
+    const a = (i / m.forma.length) * Math.PI * 2;
+    ctx.lineTo(Math.cos(a) * m.tam * k * u, Math.sin(a) * m.tam * k * u);
+  });
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#6d4c41';
+  ctx.beginPath();
+  ctx.arc(m.tam * 0.25 * u, -m.tam * 0.2 * u, m.tam * 0.22 * u, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function dibujarCristal(c, t) {
+  const x = c.x * W, y = c.y * H, r = 2 * u * (1 + 0.1 * Math.sin(t * 6));
+  ctx.fillStyle = '#7cf2c8';
+  ctx.beginPath();
+  ctx.moveTo(x, y - r * 1.4);
+  ctx.lineTo(x + r, y);
+  ctx.lineTo(x, y + r * 1.4);
+  ctx.lineTo(x - r, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function texto(t, x, y, tam, color) {
+  ctx.font = `bold ${tam * u}px "Trebuchet MS", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.fillText(t, x, y);
+}
+
+function dibujar(t, dt) {
+  ctx.fillStyle = '#050816';
+  ctx.fillRect(0, 0, W, H);
+  // Estrellas en tres capas: las cercanas pasan más rápido
+  ctx.fillStyle = '#ffffff';
+  for (const s of estrellas) {
+    s.y = (s.y + dt * 0.05 * s.capa) % 1;
+    ctx.globalAlpha = 0.3 * s.capa;
+    ctx.fillRect(s.x * W, s.y * H, u * 0.25 * s.capa, u * 0.25 * s.capa);
+  }
+  ctx.globalAlpha = 1;
+
+  if (estado === 'inicio') {
+    dibujarCohete(W / 2, H * 0.28);
+    texto('Cohete Esquivador', W / 2, H * 0.5, 9, '#4fd6ff');
+    texto('Movete con las flechas, esquivá meteoritos y juntá cristales', W / 2, H * 0.6, 3.5, '#cfd8ff');
+    texto('Presioná Enter para despegar', W / 2, H * 0.78, 5, '#ffd23f');
+    return;
+  }
+
+  for (const c of cristales) dibujarCristal(c, t);
+  for (const m of meteoritos) dibujarMeteorito(m);
+  // Cuando te chocan, el cohete titila un ratito
+  if (invencible <= 0 || Math.floor(t * 10) % 2 === 0) dibujarCohete(cohete.x * W, cohete.y * H);
+
+  ctx.textAlign = 'left';
+  ctx.font = `bold ${5 * u}px "Trebuchet MS", sans-serif`;
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillText(`Puntos: ${Math.floor(puntos)}`, 3 * u, 7 * u);
+  ctx.textAlign = 'right';
+  ctx.fillText('🛡️'.repeat(Math.max(escudos, 0)), W - 3 * u, 7 * u);
+
+  if (estado === 'fin') {
+    ctx.fillStyle = 'rgba(5, 8, 22, 0.75)';
+    ctx.fillRect(0, 0, W, H);
+    texto('¡Te quedaste sin escudos!', W / 2, H * 0.4, 8, '#4fd6ff');
+    texto(`Puntos: ${Math.floor(puntos)} · Récord: ${record}`, W / 2, H * 0.52, 5, '#cfd8ff');
+    texto('Enter para volver a despegar', W / 2, H * 0.68, 5, '#ffd23f');
+  }
+}
+
+// --- Bucle principal ---
+let anterior = performance.now();
+function bucle(ahora) {
+  const dt = Math.min((ahora - anterior) / 1000, 0.05);
+  anterior = ahora;
+  if (estado === 'jugando') actualizar(dt);
+  dibujar(ahora / 1000, dt);
+  requestAnimationFrame(bucle);
+}
+requestAnimationFrame(bucle);
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[
+  {
+    "archivo": "lluvia_de_estrellas.html",
+    "titulo": "Lluvia de Estrellas",
+    "palabras": ["estrella", "cielo", "noche", "atrapar", "agarrar", "caen", "lluvia", "canasta", "tormenta"]
+  },
+  {
+    "archivo": "cohete_esquivador.html",
+    "titulo": "Cohete Esquivador",
+    "palabras": ["cohete", "nave", "espacio", "meteorito", "asteroide", "planeta", "esquivar", "volar", "avion", "astronauta"]
+  },
+  {
+    "archivo": "laberinto_del_raton.html",
+    "titulo": "El Laberinto del Ratón",
+    "palabras": ["laberinto", "raton", "queso", "camino", "perdido", "salida", "gato", "rompecabezas"]
+  },
+  {
+    "archivo": "robot_pintor.html",
+    "titulo": "Robot Pintor",
+    "palabras": ["robot", "pintar", "pintura", "color", "baldosa", "bicho", "vaquita", "insecto", "dibujar"]
+  },
+  {
+    "archivo": "pez_burbujero.html",
+    "titulo": "Pez Burbujero",
+    "palabras": ["pez", "pescado", "mar", "agua", "burbuja", "nadar", "oceano", "acuario", "colores"]
+  }
+]

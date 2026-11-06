@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>El Laberinto del Ratón</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2b1d3a; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="juego"></canvas>
+<script>
+// El Laberinto del Ratón: llevá al ratón hasta el queso antes de que se acabe el tiempo.
+// Cada nivel el laberinto es más grande, ¡y nunca es igual!
+
+const canvas = document.getElementById('juego');
+const ctx = canvas.getContext('2d');
+let W, H, u;
+
+function ajustar() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  u = Math.min(W, H) / 100;
+}
+addEventListener('resize', ajustar);
+ajustar();
+
+// --- Estado ---
+let estado = 'inicio';
+let laberinto, cols, filas, raton, nivel, puntos, tiempo, cartel, record = 0;
+
+// --- Teclado: cada flecha mueve una casilla ---
+const direcciones = { ArrowUp: [0, -1, 'n'], ArrowDown: [0, 1, 's'], ArrowRight: [1, 0, 'e'], ArrowLeft: [-1, 0, 'o'] };
+addEventListener('keydown', (e) => {
+  if (direcciones[e.key]) {
+    e.preventDefault();
+    if (estado === 'jugando' && cartel <= 0) mover(...direcciones[e.key]);
+  }
+  if (e.key === 'Enter' && estado !== 'jugando') empezar();
+});
+
+// Genera un laberinto nuevo "cavando" caminos al azar desde la esquina
+function crearLaberinto(ancho, alto) {
+  const celdas = Array.from({ length: alto }, () =>
+    Array.from({ length: ancho }, () => ({ n: true, s: true, e: true, o: true, visitada: false, pisada: false })));
+  const vecinos = [[0, -1, 'n', 's'], [0, 1, 's', 'n'], [1, 0, 'e', 'o'], [-1, 0, 'o', 'e']];
+  const pila = [[0, 0]];
+  celdas[0][0].visitada = true;
+  while (pila.length) {
+    const [x, y] = pila[pila.length - 1];
+    const libres = vecinos
+      .map(([dx, dy, pared, opuesta]) => ({ nx: x + dx, ny: y + dy, pared, opuesta }))
+      .filter((v) => v.nx >= 0 && v.ny >= 0 && v.nx < ancho && v.ny < alto && !celdas[v.ny][v.nx].visitada);
+    if (!libres.length) {
+      pila.pop();
+      continue;
+    }
+    const v = libres[Math.floor(Math.random() * libres.length)];
+    celdas[y][x][v.pared] = false;
+    celdas[v.ny][v.nx][v.opuesta] = false;
+    celdas[v.ny][v.nx].visitada = true;
+    pila.push([v.nx, v.ny]);
+  }
+  return celdas;
+}
+
+function empezar() {
+  nivel = 0;
+  puntos = 0;
+  estado = 'jugando';
+  siguienteNivel();
+}
+
+function siguienteNivel() {
+  nivel++;
+  cols = Math.min(6 + nivel * 2, 22);
+  filas = Math.min(4 + nivel, 13);
+  laberinto = crearLaberinto(cols, filas);
+  laberinto[0][0].pisada = true;
+  raton = { x: 0, y: 0, vx: 0, vy: 0 }; // vx/vy: posición dibujada, se desliza suave
+  tiempo = 15 + nivel * 8;
+  cartel = 1.2; // segundos que se muestra "Nivel N"
+}
+
+function mover(dx, dy, pared) {
+  if (laberinto[raton.y][raton.x][pared]) return; // hay una pared
+  raton.x += dx;
+  raton.y += dy;
+  laberinto[raton.y][raton.x].pisada = true;
+  if (raton.x === cols - 1 && raton.y === filas - 1) {
+    puntos += nivel * 10 + Math.ceil(tiempo);
+    siguienteNivel();
+  }
+}
+
+function actualizar(dt) {
+  if (cartel > 0) {
+    cartel -= dt;
+    return;
+  }
+  tiempo -= dt;
+  raton.vx += (raton.x - raton.vx) * Math.min(1, dt * 15);
+  raton.vy += (raton.y - raton.vy) * Math.min(1, dt * 15);
+  if (tiempo <= 0) {
+    estado = 'fin';
+    record = Math.max(record, puntos);
+  }
+}
+
+// --- Dibujo ---
+function texto(t, x, y, tam, color) {
+  ctx.font = `bold ${tam * u}px "Trebuchet MS", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.fillText(t, x, y);
+}
+
+function emoji(e, x, y, tam) {
+  ctx.font = `${tam}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(e, x, y);
+  ctx.textBaseline = 'alphabetic';
+}
+
+function dibujarLaberinto() {
+  const lado = Math.min((W * 0.92) / cols, (H * 0.8) / filas);
+  const x0 = (W - lado * cols) / 2;
+  const y0 = H * 0.14 + (H * 0.82 - lado * filas) / 2;
+
+  for (let y = 0; y < filas; y++) {
+    for (let x = 0; x < cols; x++) {
+      const c = laberinto[y][x];
+      ctx.fillStyle = c.pisada ? '#4a3563' : '#3a2850';
+      ctx.fillRect(x0 + x * lado, y0 + y * lado, lado, lado);
+    }
+  }
+
+  ctx.strokeStyle = '#f7c8ff';
+  ctx.lineWidth = Math.max(2, lado * 0.08);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let y = 0; y < filas; y++) {
+    for (let x = 0; x < cols; x++) {
+      const c = laberinto[y][x];
+      const px = x0 + x * lado, py = y0 + y * lado;
+      if (c.n) { ctx.moveTo(px, py); ctx.lineTo(px + lado, py); }
+      if (c.s) { ctx.moveTo(px, py + lado); ctx.lineTo(px + lado, py + lado); }
+      if (c.o) { ctx.moveTo(px, py); ctx.lineTo(px, py + lado); }
+      if (c.e) { ctx.moveTo(px + lado, py); ctx.lineTo(px + lado, py + lado); }
+    }
+  }
+  ctx.stroke();
+
+  emoji('🧀', x0 + (cols - 0.5) * lado, y0 + (filas - 0.5) * lado, lado * 0.7);
+  emoji('🐭', x0 + (raton.vx + 0.5) * lado, y0 + (raton.vy + 0.5) * lado, lado * 0.75);
+}
+
+function dibujar() {
+  ctx.fillStyle = '#2b1d3a';
+  ctx.fillRect(0, 0, W, H);
+
+  if (estado === 'inicio') {
+    emoji('🐭', W / 2 - 12 * u, H * 0.25, 16 * u);
+    emoji('🧀', W / 2 + 12 * u, H * 0.25, 14 * u);
+    texto('El Laberinto del Ratón', W / 2, H * 0.48, 8, '#f7c8ff');
+    texto('Usá las flechas para llevar al ratón hasta el queso', W / 2, H * 0.58, 3.5, '#e6d8ff');
+    texto('Cada nivel es más grande. ¡Apurate que el tiempo corre!', W / 2, H * 0.64, 3.5, '#e6d8ff');
+    texto('Presioná Enter para empezar', W / 2, H * 0.8, 5, '#ffd166');
+    return;
+  }
+
+  dibujarLaberinto();
+
+  ctx.font = `bold ${4.5 * u}px "Trebuchet MS", sans-serif`;
+  ctx.fillStyle = '#ffd166';
+  ctx.textAlign = 'left';
+  ctx.fillText(`Nivel ${nivel} · Puntos: ${puntos}`, 3 * u, 7 * u);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = tiempo < 5 ? '#ff6b6b' : '#ffd166';
+  ctx.fillText(`⏱ ${Math.max(0, Math.ceil(tiempo))}`, W - 3 * u, 7 * u);
+
+  if (cartel > 0 && estado === 'jugando') {
+    ctx.fillStyle = 'rgba(43, 29, 58, 0.7)';
+    ctx.fillRect(0, 0, W, H);
+    texto(`¡Nivel ${nivel}!`, W / 2, H * 0.5, 10, '#f7c8ff');
+  }
+
+  if (estado === 'fin') {
+    ctx.fillStyle = 'rgba(43, 29, 58, 0.8)';
+    ctx.fillRect(0, 0, W, H);
+    texto('¡Se acabó el tiempo!', W / 2, H * 0.4, 8, '#f7c8ff');
+    texto(`Llegaste al nivel ${nivel} con ${puntos} puntos · Récord: ${record}`, W / 2, H * 0.52, 4.5, '#e6d8ff');
+    texto('Enter para jugar de nuevo', W / 2, H * 0.68, 5, '#ffd166');
+  }
+}
+
+// --- Bucle principal ---
+let anterior = performance.now();
+function bucle(ahora) {
+  const dt = Math.min((ahora - anterior) / 1000, 0.05);
+  anterior = ahora;
+  if (estado === 'jugando') actualizar(dt);
+  dibujar();
+  requestAnimationFrame(bucle);
+}
+requestAnimationFrame(bucle);
+</script>
+</body>
+</html>

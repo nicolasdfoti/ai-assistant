@@ -1,60 +1,73 @@
-import './style.css'
-import heroImg from './assets/hero.png'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import { setupCounter } from './counter.ts'
+import './style.css';
+import { Musica } from './audio/musica';
+import { PISTAS } from './audio/pistas';
+import { ClienteByte } from './cerebro/clienteByte';
+import { CONFIG } from './config';
+import { Conversacion } from './conversacion';
+import { EventBus } from './core/eventBus';
+import type { EventosByte } from './core/eventos';
+import { MaquinaEstados } from './core/maquinaEstados';
+import { Hud } from './debug/hud';
+import { Ojos } from './eyes/ojos';
+import { Controles } from './input/controles';
+import { Ocurrencias } from './ocurrencias';
+import { PanelJuego } from './juego/panelJuego';
+import { SeguidorJuego } from './juego/seguidorJuego';
+import { esconderCursorInactivo } from './ui/cursor';
+import { esperarDespertar } from './ui/despertar';
+import { entrarPantallaCompleta } from './ui/pantallaCompleta';
+import { Subtitulos } from './ui/subtitulos';
+import { EnvolventeSintetica } from './voz/envolventeSintetica';
+import { OidoWebSpeech } from './voz/oidoWebSpeech';
+import { VozNavegador } from './voz/vozNavegador';
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src="${viteLogo}" class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+// main solo arma las piezas y las conecta entre sí a través del bus.
+const app = document.querySelector<HTMLElement>('#app')!;
+const bus = new EventBus<EventosByte>();
+// Byte arranca dormido; se despierta con la primera tecla.
+const estados = new MaquinaEstados(bus, 'durmiendo');
+const ojos = new Ojos(app, bus, CONFIG.ojos, estados.actual);
+const musica = new Musica(PISTAS, CONFIG.musica);
+const envolvente = new EnvolventeSintetica(bus);
+const cliente = new ClienteByte(CONFIG.backend);
 
-<div class="ticks"></div>
+const conversacion = new Conversacion({
+  bus,
+  estados,
+  oido: new OidoWebSpeech(bus, CONFIG.oido),
+  voz: new VozNavegador(envolvente, CONFIG.voz),
+  cliente,
+  seguidor: new SeguidorJuego(bus, cliente, CONFIG.juego),
+});
+new PanelJuego(bus, {
+  teclasDeByte: [CONFIG.teclas.pushToTalk, CONFIG.teclas.cerrarJuego],
+  cerrarInactivoMs: CONFIG.juego.cerrarInactivoMs,
+});
+new Ocurrencias(bus, (texto) => conversacion.comentar(texto), CONFIG.ocurrencias);
+new Controles(bus, CONFIG.teclas);
+esconderCursorInactivo(CONFIG.cursorInactivoS);
+if (CONFIG.subtitulos) new Subtitulos(document.body, bus);
+new Hud(document.body, bus, {
+  visible: CONFIG.hudVisible,
+  estadoInicial: estados.actual,
+  avisos: musica.hayPistas ? [] : ['♪ no hay música en assets/musica'],
+});
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src="${viteLogo}" alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+bus.on('estado:cambio', ({ actual }) => {
+  if (CONFIG.musica.bajarEn.includes(actual)) musica.bajar();
+  else musica.subir();
+  if (actual !== 'hablando') envolvente.detener();
+});
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+// Debug: forzar estados. En `hablando` los ojos rebotan con una voz simulada.
+bus.on('debug:estado', (estado) => {
+  estados.cambiar(estado);
+  if (estado === 'hablando') envolvente.iniciar();
+});
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+ojos.iniciar();
+await esperarDespertar(document.body);
+if (CONFIG.pantallaCompletaAlDespertar) entrarPantallaCompleta();
+estados.cambiar('idle');
+conversacion.saludar();
+await musica.iniciar();
